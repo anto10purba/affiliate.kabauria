@@ -71,7 +71,9 @@ textarea{font-family:Arial;resize:vertical}
   </div>
 </div>
 
-<script>
+<script>const SB_URL="https://ubqnltsjjfdcdaociida.supabase.co",SB_KEY="sb_publishable_WtDMjW-6R2bMLW7Exl8Y3w_eziCCpdZ";
+async function rpc(fn,args){const r=await fetch(SB_URL+"/rest/v1/rpc/"+fn,{method:"POST",headers:{"Content-Type":"application/json",apikey:SB_KEY},body:JSON.stringify(args||{})});const t=await r.text();let j=null;try{j=t?JSON.parse(t):null}catch(e){}if(!r.ok)throw new Error((j&&(j.message||j.hint))||"Gagal terhubung ke server ("+r.status+")");if(j&&j.error)throw new Error(j.error);return j}</script>
+<script type="text/plain" id="app">
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, m => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[m]));
 const rd = (k, d) => { try { return JSON.parse(localStorage.getItem(k) || d) } catch (e) { return JSON.parse(d) } };
@@ -79,8 +81,8 @@ const money = n => "Rp" + Number(n || 0).toLocaleString("id-ID");
 const PAY_DEFAULT = '{"qris":{"enabled":false,"name":"","image":""},"bank":{"enabled":false,"name":"","number":"","owner":""}}';
 
 const qs = new URLSearchParams(location.search);
-const A = rd("KABAURIA_AFFILIATES", "[]");
-const P = rd("KABAURIA_PAYMENTS", PAY_DEFAULT);
+const A = PUB.affiliate ? [PUB.affiliate] : [];
+const P = PUB.payments || JSON.parse(PAY_DEFAULT);
 P.qris = P.qris || {}; P.bank = P.bank || {};
 const ref = (qs.get("ref") || "").toUpperCase();
 const affiliate = A.find(x => x.code === ref && x.active !== false);
@@ -96,7 +98,7 @@ $("aff").textContent = affiliate ? affiliate.name : "Tidak terdeteksi";
 $("code").textContent = affiliate ? affiliate.code : "-";
 
 /* ---------- tombol LIHAT PRODUK (link sama untuk semua affiliate, diatur admin) ---------- */
-const PRODUCT_LINK = (localStorage.getItem("KABAURIA_PRODUCT_LINK") || "").trim();
+const PRODUCT_LINK = String(PUB.product_link || "").trim();
 if (/^https?:\/\//i.test(PRODUCT_LINK)) {
   $("prodTop").innerHTML = `<a class="btnlink prodbtn" target="_blank" rel="noopener" href="${esc(PRODUCT_LINK)}">LIHAT PRODUK</a>`;
 }
@@ -131,8 +133,8 @@ function copyText(t, label) {
   else fb();
 }
 
-function findOrder(id) {
-  return rd("KABAURIA_ORDERS", "[]").find(o => o.order_id === id);
+async function findOrder(id) {
+  try { return await rpc("kb_get_order", { p_id: id }); } catch (e) { return null; }
 }
 
 function waNumber(raw) {
@@ -145,8 +147,7 @@ function waNumber(raw) {
 /* ---------- tampilan pesanan ---------- */
 function showOrder(o) {
   const st = STATUS[o.status] || [o.status, ""];
-  const aff2 = A.find(x => x.code === o.affiliate_code);
-  const num = aff2 ? waNumber(aff2.wa) : "";
+  const num = waNumber(o.affiliate_wa);
   const msg = `Halo ${o.affiliate_name || ""}, saya ${o.customer} sudah melakukan pembayaran untuk pesanan ${o.order_id}.`;
   const methodLabel = o.payment_method === "QRIS" ? "QRIS" : o.payment_method === "TRANSFER_BANK" ? "Transfer Bank" : "-";
 
@@ -190,8 +191,8 @@ function showOrder(o) {
     <button type="button" class="gray" onclick="newOrder()">Buat Pesanan Baru</button>`;
 }
 
-function refreshOrder(id) {
-  const o = findOrder(id);
+async function refreshOrder(id) {
+  const o = await findOrder(id);
   if (!o) return alert("Pesanan tidak ditemukan.");
   showOrder(o);
 }
@@ -225,7 +226,7 @@ function nextOrderId(all, code) {
 }
 
 /* ---------- buat pesanan ---------- */
-$("form").onsubmit = e => {
+$("form").onsubmit = async e => {
   e.preventDefault();
   const sel = document.querySelector("input[name=pm]:checked");
   const method = sel ? sel.value : "";
@@ -237,42 +238,27 @@ $("form").onsubmit = e => {
   if (!Number.isInteger(qtyV) || qtyV < 1 || qtyV > 9999) return alert("Jumlah tidak valid (minimal 1).");
   if (!Number.isSafeInteger(totalV) || totalV <= 0 || totalV > 1000000000) return alert("Total harga tidak valid.");
 
-  const all = rd("KABAURIA_ORDERS", "[]");
-  const id = nextOrderId(all, affiliate ? affiliate.code : "");
-
-  const o = {
-    order_id: id,
-    affiliate_code: affiliate ? affiliate.code : null,
-    affiliate_name: affiliate ? affiliate.name : null,
-    customer: $("customer").value.trim(),
-    wa: $("wa").value.trim(),
-    address: addrV,
-    note: $("note").value.trim(),
-    product: "",
-    product_note: $("item").value.trim(),
-    qty: qtyV,
-    qty_claimed: qtyV,
-    total: totalV,
-    total_claimed: totalV,
-    commission_unit: affiliate ? Number(affiliate.commission) : 0,
-    commission: affiliate ? Number(affiliate.commission) * qtyV : 0,
-    payment_method: method,
-    status: "WAITING_PAYMENT",
-    created_at: new Date().toISOString()
-  };
-  all.push(o);
-  localStorage.setItem("KABAURIA_ORDERS", JSON.stringify(all));
+  const btn = e.submitter; if (btn) btn.disabled = true;
+  let o;
+  try {
+    o = await rpc("kb_create_order", { p: {
+      affiliate_code: affiliate ? affiliate.code : "",
+      customer: $("customer").value.trim(), wa: $("wa").value.trim(),
+      address: addrV, note: $("note").value.trim(), product_note: $("item").value.trim(),
+      qty: qtyV, total: totalV, payment_method: method } });
+  } catch (err) { if (btn) btn.disabled = false; return alert("Gagal membuat pesanan: " + err.message); }
+  const id = o.order_id;
   setUrl(id);
   showOrder(o);
 };
 
 /* ---------- cek status ---------- */
-function checkOrder() {
+async function checkOrder() {
   const id = $("chk").value.trim().toUpperCase().replace(/\s/g, "");
   const out = $("chkres");
   if (!id) { out.textContent = "Masukkan nomor order terlebih dahulu."; return; }
-  const o = findOrder(id);
-  if (!o) { out.textContent = "Nomor order tidak ditemukan. Pastikan nomornya benar dan dibuka di browser yang sama dengan saat memesan."; return; }
+  const o = await findOrder(id);
+  if (!o) { out.textContent = "Nomor order tidak ditemukan. Pastikan nomornya benar."; return; }
   out.textContent = "";
   setUrl(id);
   showOrder(o);
@@ -283,7 +269,8 @@ $("chk").addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDe
 
 /* ---------- buka langsung dari ?order=ID ---------- */
 const oq = (qs.get("order") || "").toUpperCase();
-if (oq) { const o = findOrder(oq); if (o) showOrder(o); }
+if (oq) findOrder(oq).then(o => { if (o) showOrder(o); });
 </script>
+<script>(async()=>{try{window.PUB=await rpc("kb_public",{p_code:(new URLSearchParams(location.search).get("ref")||"").toUpperCase()})}catch(e){document.body.innerHTML="<p style='padding:24px;font-family:Arial'>Gagal terhubung ke server. Muat ulang halaman.</p>";return}const s=document.createElement("script");s.textContent=document.getElementById("app").textContent;document.body.appendChild(s)})();</script>
 </body>
 </html>
