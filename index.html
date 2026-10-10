@@ -13,7 +13,7 @@ body{margin:0;background:#f3f3f3;font-family:Arial;color:#111}
 .card{border:1px solid #ddd;border-radius:16px;padding:18px;margin-top:14px}
 .ref{background:#f4f4f4;padding:12px;border-radius:9px;margin:12px 0}
 label{display:block;font-size:13px;font-weight:bold;margin:12px 0 5px}
-input,select{width:100%;padding:13px;border:1px solid #bbb;border-radius:9px;font-size:15px}
+input,select,textarea{width:100%;padding:13px;border:1px solid #bbb;border-radius:9px;font-size:15px}
 button{width:100%;padding:14px;border:0;border-radius:9px;background:#111;color:#fff;font-weight:bold;margin-top:12px;font-size:14px}
 button.gray{background:#777}
 .method{border:1px solid #ddd;padding:11px;border-radius:9px;margin:8px 0}
@@ -23,9 +23,14 @@ button.gray{background:#777}
 .badge{display:inline-block;padding:6px 10px;border-radius:20px;background:#eee;font-size:12px;font-weight:bold}
 .badge.yellow{background:#fff4cf}
 .badge.green{background:#e3f6e7}
+.badge.red{background:#fde2e2;color:#a00000}
+textarea{font-family:Arial;resize:vertical}
+.notice{background:#e8f7ec;border:1px solid #bfe6c8;color:#1c6b32;border-radius:10px;padding:11px 12px;margin-top:10px;font-size:13px;font-weight:bold;line-height:1.4}
+.cancelbox{background:#fde2e2;border:1px solid #f3b8b8;color:#a00000;border-radius:10px;padding:12px;margin-top:12px;font-size:14px;line-height:1.5}
 .box{background:#fafafa;border:1px solid #eee;border-radius:10px;padding:12px;margin-top:12px;font-size:14px;line-height:1.5}
 .box ol{margin:6px 0 0;padding-left:20px}
 .btnlink{display:block;text-align:center;padding:14px;border-radius:9px;background:#25D366;color:#fff;font-weight:bold;text-decoration:none;margin-top:12px;font-size:14px}
+.prodbtn{background:#111;margin-top:0;margin-bottom:6px;letter-spacing:1px}
 .small{font-size:12px;color:#777}
 .copybtn{width:auto;display:inline-block;margin:0 0 0 8px;padding:6px 12px;font-size:12px;vertical-align:middle}
 </style>
@@ -38,13 +43,17 @@ button.gray{background:#777}
   <div class="card">
     <h2 id="productTitle" style="margin-top:0">Form Pesanan</h2>
     <div class="ref">Affiliate: <b id="aff">Tidak terdeteksi</b><br>Kode: <b id="code">-</b></div>
+    <div id="prodTop"></div>
 
     <form id="form">
       <label>Nama</label><input id="customer" required>
       <label>WhatsApp</label><input id="wa" inputmode="tel" placeholder="Contoh: 08123456789" required>
+      <label>Alamat pengiriman</label><textarea id="address" rows="3" maxlength="300" placeholder="Contoh: Jl. Melati No. 5, RT 02/RW 03, Kel. ..., Kec. ..." required></textarea>
+      <div class="notice">🚚 Gratis ongkir area dalam kota, admin segera menghubungi anda</div>
       <label>Barang yang dipesan</label><input id="item" placeholder="Contoh: Kaos hitam" maxlength="120" autocomplete="off" required>
       <label>Jumlah</label><input id="qty" type="number" inputmode="numeric" min="1" max="9999" value="1" required>
       <label>Total harga (Rp)</label><input id="total" inputmode="numeric" placeholder="Contoh: 250000" autocomplete="off" required>
+      <label>Catatan (opsional)</label><textarea id="note" rows="2" maxlength="300" placeholder="Contoh: warna, ukuran, patokan alamat, jam pengantaran"></textarea>
       <label>Metode Pembayaran</label>
       <div id="methods"></div>
       <button type="submit">BUAT PESANAN</button>
@@ -56,15 +65,13 @@ button.gray{background:#777}
   <div class="card">
     <h3 style="margin:0 0 4px">Cek Status Pesanan</h3>
     <div class="small">Masukkan nomor order kamu.</div>
-    <input id="chk" placeholder="Contoh: KBR-BUD01-001" style="margin-top:10px" autocomplete="off"><input id="chkwa" inputmode="numeric" maxlength="4" placeholder="4 digit terakhir nomor WhatsApp" style="margin-top:8px" autocomplete="off">
+    <input id="chk" placeholder="Contoh: KBR-BUD01-001" style="margin-top:10px" autocomplete="off">
     <button type="button" id="chkbtn" class="gray">Cek Status</button>
     <div id="chkres" class="small" style="margin-top:10px"></div>
   </div>
 </div>
 
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
-const SB_URL="https://ubqnltsjjfdcdaociida.supabase.co",SB_KEY="sb_publishable_WtDMjW-6R2bMLW7Exl8Y3w_eziCCpdZ",sb=supabase.createClient(SB_URL,SB_KEY);
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, m => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[m]));
 const rd = (k, d) => { try { return JSON.parse(localStorage.getItem(k) || d) } catch (e) { return JSON.parse(d) } };
@@ -72,25 +79,34 @@ const money = n => "Rp" + Number(n || 0).toLocaleString("id-ID");
 const PAY_DEFAULT = '{"qris":{"enabled":false,"name":"","image":""},"bank":{"enabled":false,"name":"","number":"","owner":""}}';
 
 const qs = new URLSearchParams(location.search);
-let P = JSON.parse(PAY_DEFAULT);
-const ref = (qs.get("ref") || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
-let affiliate = null;
-const myMap = () => rd("KBR_MY_ORDERS", "{}");
-const myWa4 = id => myMap()[id] || "";
+const A = rd("KABAURIA_AFFILIATES", "[]");
+const P = rd("KABAURIA_PAYMENTS", PAY_DEFAULT);
+P.qris = P.qris || {}; P.bank = P.bank || {};
+const ref = (qs.get("ref") || "").toUpperCase();
+const affiliate = A.find(x => x.code === ref && x.active !== false);
 
 const STATUS = {
   WAITING_PAYMENT: ["Menunggu pembayaran", ""],
   WAITING_VERIFICATION: ["Menunggu verifikasi admin", "yellow"],
-  PAID: ["Lunas / terverifikasi", "green"]
+  PAID: ["Lunas / terverifikasi", "green"],
+  CANCELLED: ["Dibatalkan", "red"]
 };
 
-function renderMethods() {
+$("aff").textContent = affiliate ? affiliate.name : "Tidak terdeteksi";
+$("code").textContent = affiliate ? affiliate.code : "-";
+
+/* ---------- tombol LIHAT PRODUK (link sama untuk semua affiliate, diatur admin) ---------- */
+const PRODUCT_LINK = (localStorage.getItem("KABAURIA_PRODUCT_LINK") || "").trim();
+if (/^https?:\/\//i.test(PRODUCT_LINK)) {
+  $("prodTop").innerHTML = `<a class="btnlink prodbtn" target="_blank" rel="noopener" href="${esc(PRODUCT_LINK)}">LIHAT PRODUK</a>`;
+}
+
+/* ---------- pilihan metode pembayaran ---------- */
 let m = "";
 if (P.qris.enabled) m += `<label class="method"><input type="radio" name="pm" value="QRIS" checked style="width:auto;margin-right:6px"><b>QRIS</b><br><span class="small">${esc(P.qris.name || "Scan QRIS")}</span>${P.qris.image ? `<img class="qris" src="${P.qris.image}">` : ""}</label>`;
 if (P.bank.enabled) m += `<label class="method"><input type="radio" name="pm" value="TRANSFER_BANK" ${P.qris.enabled ? "" : "checked"} style="width:auto;margin-right:6px"><b>Transfer Bank</b><br>${esc(P.bank.name)}<br>No. Rek: <b>${esc(P.bank.number)}</b> <button type="button" class="copybtn" data-copy="${esc(P.bank.number)}" onclick="event.preventDefault();event.stopPropagation();copyText(this.dataset.copy,'Nomor rekening')">Salin</button><br>A/N: ${esc(P.bank.owner)}</label>`;
 if (!m) m = "<div class='small'>Belum ada metode pembayaran aktif.</div>";
 $("methods").innerHTML = m;
-}
 
 /* ---------- helper ---------- */
 function payHTML(method) {
@@ -115,9 +131,8 @@ function copyText(t, label) {
   else fb();
 }
 
-async function findOrder(id, wa4) {
-  const { data, error } = await sb.rpc("get_order_status", { p_order_no: id, p_wa4: wa4 || "" });
-  return !error && data && data.ok ? data.order : null;
+function findOrder(id) {
+  return rd("KABAURIA_ORDERS", "[]").find(o => o.order_id === id);
 }
 
 function waNumber(raw) {
@@ -130,7 +145,8 @@ function waNumber(raw) {
 /* ---------- tampilan pesanan ---------- */
 function showOrder(o) {
   const st = STATUS[o.status] || [o.status, ""];
-  const num = waNumber(o.affiliate_wa);
+  const aff2 = A.find(x => x.code === o.affiliate_code);
+  const num = aff2 ? waNumber(aff2.wa) : "";
   const msg = `Halo ${o.affiliate_name || ""}, saya ${o.customer} sudah melakukan pembayaran untuk pesanan ${o.order_id}.`;
   const methodLabel = o.payment_method === "QRIS" ? "QRIS" : o.payment_method === "TRANSFER_BANK" ? "Transfer Bank" : "-";
 
@@ -150,7 +166,12 @@ function showOrder(o) {
     body = `<div class="box">Pembayaran kamu sedang diverifikasi oleh admin. Simpan nomor order ini dan cek statusnya lagi nanti.</div>`;
   } else if (o.status === "PAID") {
     body = `<div class="box">Pembayaran sudah terverifikasi. Terima kasih sudah berbelanja di KABAURIA!</div>`;
+  } else if (o.status === "CANCELLED") {
+    const by = o.cancelled_by === "ADMIN" ? "admin" : o.cancelled_by ? "affiliate" : "";
+    body = `<div class="cancelbox"><b>Pesanan dibatalkan${by ? " oleh " + by : ""}</b><br>Catatan: ${esc(o.cancel_note || "-")}</div>`;
   }
+  if (o.status !== "CANCELLED") body += `<div class="notice">🚚 Gratis ongkir area dalam kota, admin segera menghubungi anda</div>`;
+  const extra = (o.address ? `<div class="box"><b>Alamat pengiriman</b><br>${esc(o.address).replace(/\n/g, "<br>")}${o.note ? `<br><br><b>Catatan</b><br>${esc(o.note).replace(/\n/g, "<br>")}` : ""}</div>` : "");
 
   $("form").style.display = "none";
   $("aff").textContent = o.affiliate_name || "Tidak terdeteksi";
@@ -162,14 +183,15 @@ function showOrder(o) {
     <div class="oid">${esc(o.order_id)}</div>
     <div>Status: <span class="badge ${st[1]}">${esc(st[0])}</span></div>
     <div class="small" style="margin-top:8px">${[o.product || o.product_note, o.qty ? "Jumlah " + o.qty : "", o.total ? money(o.total) : "", methodLabel].filter(Boolean).map(esc).join(" · ")}</div>
+    ${extra}
     ${body}
     <button type="button" onclick="copyText('${esc(o.order_id)}','Nomor order')">Salin Nomor Order</button>
     <button type="button" class="gray" onclick="refreshOrder('${esc(o.order_id)}')">Perbarui Status</button>
     <button type="button" class="gray" onclick="newOrder()">Buat Pesanan Baru</button>`;
 }
 
-async function refreshOrder(id) {
-  const o = await findOrder(id, myWa4(id));
+function refreshOrder(id) {
+  const o = findOrder(id);
   if (!o) return alert("Pesanan tidak ditemukan.");
   showOrder(o);
 }
@@ -187,71 +209,81 @@ function setUrl(id) {
   } catch (e) {}
 }
 
-/* ---------- buat pesanan (nomor dibuat server: KBR-KODE-URUTAN) ---------- */
-$("form").onsubmit = async e => {
+/* ---------- nomor order otomatis: KBR-KODEAFFILIATE-URUTAN ---------- */
+function nextOrderId(all, code) {
+  const clean = String(code || "").toUpperCase().replace(/[^A-Z0-9]/g, "") || "UMUM";
+  const prefix = "KBR-" + clean + "-";
+  let max = 0;
+  all.forEach(x => {
+    const id = String(x.order_id || "");
+    if (id.startsWith(prefix)) {
+      const rest = id.slice(prefix.length);
+      if (/^\d+$/.test(rest) && Number(rest) > max) max = Number(rest);
+    }
+  });
+  return prefix + String(max + 1).padStart(3, "0");
+}
+
+/* ---------- buat pesanan ---------- */
+$("form").onsubmit = e => {
   e.preventDefault();
   const sel = document.querySelector("input[name=pm]:checked");
   const method = sel ? sel.value : "";
   if (!method) return alert("Belum ada metode pembayaran yang aktif. Hubungi affiliate.");
   if ($("wa").value.replace(/\D/g, "").length < 9) return alert("Nomor WhatsApp tidak valid.");
+  const addrV = $("address").value.trim();
+  if (addrV.length < 8) return alert("Alamat pengiriman belum lengkap.");
   const qtyV = Number($("qty").value), totalV = Number(String($("total").value).replace(/[^0-9]/g, ""));
   if (!Number.isInteger(qtyV) || qtyV < 1 || qtyV > 9999) return alert("Jumlah tidak valid (minimal 1).");
   if (!Number.isSafeInteger(totalV) || totalV <= 0 || totalV > 1000000000) return alert("Total harga tidak valid.");
-  const btn = document.querySelector("#form button[type=submit]");
-  btn.disabled = true;
-  try {
-    const { data, error } = await sb.rpc("create_order", { p_ref: ref, p_customer: $("customer").value, p_wa: $("wa").value, p_item: $("item").value, p_qty: qtyV, p_total: totalV, p_method: method });
-    if (error || !data) return alert("Gagal membuat pesanan. Periksa koneksi internet lalu coba lagi.");
-    if (!data.ok) return alert(data.error || "Gagal membuat pesanan.");
-    const map = myMap(); map[data.order.order_id] = $("wa").value.replace(/\D/g, "").slice(-4);
-    try { localStorage.setItem("KBR_MY_ORDERS", JSON.stringify(map)); } catch (_) {}
-    setUrl(data.order.order_id);
-    showOrder(data.order);
-  } finally { btn.disabled = false; }
+
+  const all = rd("KABAURIA_ORDERS", "[]");
+  const id = nextOrderId(all, affiliate ? affiliate.code : "");
+
+  const o = {
+    order_id: id,
+    affiliate_code: affiliate ? affiliate.code : null,
+    affiliate_name: affiliate ? affiliate.name : null,
+    customer: $("customer").value.trim(),
+    wa: $("wa").value.trim(),
+    address: addrV,
+    note: $("note").value.trim(),
+    product: "",
+    product_note: $("item").value.trim(),
+    qty: qtyV,
+    qty_claimed: qtyV,
+    total: totalV,
+    total_claimed: totalV,
+    commission_unit: affiliate ? Number(affiliate.commission) : 0,
+    commission: affiliate ? Number(affiliate.commission) * qtyV : 0,
+    payment_method: method,
+    status: "WAITING_PAYMENT",
+    created_at: new Date().toISOString()
+  };
+  all.push(o);
+  localStorage.setItem("KABAURIA_ORDERS", JSON.stringify(all));
+  setUrl(id);
+  showOrder(o);
 };
 
-/* ---------- cek status (nomor order + 4 digit terakhir WhatsApp) ---------- */
-async function checkOrder() {
+/* ---------- cek status ---------- */
+function checkOrder() {
   const id = $("chk").value.trim().toUpperCase().replace(/\s/g, "");
   const out = $("chkres");
   if (!id) { out.textContent = "Masukkan nomor order terlebih dahulu."; return; }
-  const w4 = $("chkwa").value.replace(/\D/g, "");
-  if (w4.length !== 4) { out.textContent = "Isi 4 digit terakhir nomor WhatsApp yang dipakai saat memesan."; return; }
-  out.textContent = "Memeriksa...";
-  const o = await findOrder(id, w4);
-  if (!o) { out.textContent = "Nomor order atau 4 digit WhatsApp tidak cocok."; return; }
+  const o = findOrder(id);
+  if (!o) { out.textContent = "Nomor order tidak ditemukan. Pastikan nomornya benar dan dibuka di browser yang sama dengan saat memesan."; return; }
   out.textContent = "";
-  const map = myMap(); map[id] = w4;
-  try { localStorage.setItem("KBR_MY_ORDERS", JSON.stringify(map)); } catch (_) {}
   setUrl(id);
   showOrder(o);
   window.scrollTo(0, 0);
 }
 $("chkbtn").onclick = checkOrder;
 $("chk").addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); checkOrder(); } });
-$("chkwa").addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); checkOrder(); } });
 
-/* ---------- muat pengaturan & affiliate dari Supabase ---------- */
-async function boot() {
-  try {
-    const [s, a] = await Promise.all([
-      sb.from("settings").select("*").eq("id", 1).single(),
-      ref ? sb.rpc("get_affiliate_public", { p_code: ref }) : Promise.resolve({ data: null })
-    ]);
-    if (s.data) P = { qris: { enabled: s.data.qris_enabled, name: s.data.qris_name, image: s.data.qris_image }, bank: { enabled: s.data.bank_enabled, name: s.data.bank_name, number: s.data.bank_number, owner: s.data.bank_owner } };
-    affiliate = a.data || null;
-  } catch (e) {}
-  $("aff").textContent = affiliate ? affiliate.name : "Tidak terdeteksi";
-  $("code").textContent = affiliate ? affiliate.code : "-";
-  renderMethods();
-  const oq = (qs.get("order") || "").toUpperCase();
-  if (oq) {
-    const w = myWa4(oq), o = w ? await findOrder(oq, w) : null;
-    if (o) return showOrder(o);
-    $("chk").value = oq; $("chkwa").focus();
-  }
-}
-boot();
+/* ---------- buka langsung dari ?order=ID ---------- */
+const oq = (qs.get("order") || "").toUpperCase();
+if (oq) { const o = findOrder(oq); if (o) showOrder(o); }
 </script>
 </body>
 </html>
